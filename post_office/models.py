@@ -10,9 +10,11 @@ from django.db import models
 from django.utils.encoding import smart_str
 from django.utils.translation import pgettext_lazy, gettext_lazy as _
 from django.utils import timezone
+from django.conf import settings
 
 from post_office import cache
 from post_office.fields import CommaSeparatedEmailField
+from insurance.storage_backends import private_storage
 
 from .connections import connections
 from .logutils import setup_loghandlers
@@ -344,6 +346,13 @@ def get_upload_path(instance, filename):
     if not instance.name:
         instance.name = filename  # set original filename
     date = timezone.now().date()
+    time = timezone.now().time()
+
+    if settings.OVERRIDE_POST_OFFICE_UPLOAD_TO_PATH:
+        filename = f"{filename} {time.hour:02d}{time.minute:02d}{time.microsecond}"
+    else:
+        filename = '{name}.{ext}'.format(name=uuid4().hex,
+                                         ext=filename.split('.')[-1])
     filename = '{name}.{ext}'.format(name=uuid4().hex, ext=filename.split('.')[-1])
 
     return os.path.join('post_office_attachments', str(date.year), str(date.month), str(date.day), filename)
@@ -359,6 +368,11 @@ class Attachment(models.Model):
     emails = models.ManyToManyField(Email, related_name='attachments', verbose_name=_('Emails'))
     mimetype = models.CharField(max_length=255, default='', blank=True)
     headers = models.JSONField(_('Headers'), blank=True, null=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if settings.FORCE_PUBLIC_STORAGE_TO_PRIVATE_STORAGE_AT_DB is True:
+            self.file.storage = private_storage()
 
     class Meta:
         app_label = 'post_office'
